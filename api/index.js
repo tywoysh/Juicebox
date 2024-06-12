@@ -1,10 +1,11 @@
 // api/index.js
 const express = require('express');
 const apiRouter = express.Router();
+require('dotenv').config();
 
 const jwt = require('jsonwebtoken');
 const { getUserById } = require('../db');
-const { JWT_SECRET } = process.env;
+const { JWT_SECRET="neverTell" } = process.env;
 
 // set `req.user` if possible
 apiRouter.use(async (req, res, next) => {

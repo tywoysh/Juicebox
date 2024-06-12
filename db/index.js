@@ -1,7 +1,7 @@
 const { Client } = require('pg') // imports the pg module
 
 const client = new Client({
-  connectionString: process.env.DATABASE_URL || 'postgres://localhost:5432/juicebox-dev',
+  connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/juicebox',
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
 });
 
@@ -17,8 +17,8 @@ async function createUser({
 }) {
   try {
     const { rows: [ user ] } = await client.query(`
-      INSERT INTO users(username, password, name) 
-      VALUES($1, $2, $3) 
+      INSERT INTO users(username, password, name, location) 
+      VALUES($1, $2, $3, $4) 
       ON CONFLICT (username) DO NOTHING 
       RETURNING *;
     `, [username, password, name, location]);
@@ -98,12 +98,12 @@ async function getUserByUsername(username) {
       WHERE username=$1
     `, [ username ]);
 
-    if (!user) {
-      throw {
-        name: "UserNotFoundError",
-        message: "A user with that username does not exist"
-      }
-    }
+    // if (!user) {
+    //   throw {
+    //     name: "UserNotFoundError",
+    //     message: "A user with that username does not exist"
+    //   }
+    // }
 
     return user;
   } catch (error) {
@@ -122,15 +122,22 @@ async function createPost({
   tags = []
 }) {
   try {
+    console.log("Creating post with data:", { authorId, title, content, tags });
     const { rows: [ post ] } = await client.query(`
       INSERT INTO posts("authorId", title, content) 
       VALUES($1, $2, $3)
       RETURNING *;
     `, [authorId, title, content]);
 
+    console.log("Post created", post);
+
     const tagList = await createTags(tags);
 
-    return await addTagsToPost(post.id, tagList);
+    const postWithTags = await addTagsToPost(post.id, tagList);
+
+    console.log("Post with tags", postWithTags);
+
+    return postWithTags
   } catch (error) {
     throw error;
   }
@@ -282,8 +289,8 @@ async function getPostsByTagName(tagName) {
  */
 
 async function createTags(tagList) {
-  if (tagList.length === 0) {
-    return;
+  if (!Array.isArray(tagList) || tagList.length === 0) {
+    return [];
   }
 
   const valuesStringInsert = tagList.map(
@@ -295,6 +302,7 @@ async function createTags(tagList) {
   ).join(', ');
 
   try {
+    console.log("Inserting tags:", tagList);
     // insert all, ignoring duplicates
     await client.query(`
       INSERT INTO tags(name)
@@ -308,6 +316,8 @@ async function createTags(tagList) {
       WHERE name
       IN (${ valuesStringSelect });
     `, tagList);
+
+    console.log("Tags created or fetched:", rows);
 
     return rows;
   } catch (error) {
@@ -328,14 +338,22 @@ async function createPostTag(postId, tagId) {
 }
 
 async function addTagsToPost(postId, tagList) {
+  if (!Array.isArray(tagList) || tagList.length === 0) {
+    return await getPostById(postId);
+  }
+
   try {
+    console.log("Adding tags to post:", postId, tagList);
+
     const createPostTagPromises = tagList.map(
       tag => createPostTag(postId, tag.id)
     );
 
     await Promise.all(createPostTagPromises);
 
-    return await getPostById(postId);
+    const postWithTags = await getPostById(postId);
+    console.log("Post with tags:", postWithTags);
+    return postWithTags;
   } catch (error) {
     throw error;
   }
@@ -349,6 +367,20 @@ async function getAllTags() {
     `);
 
     return { rows }
+  } catch (error) {
+    throw error;
+  }
+}
+
+async function deletePost(postId) {
+  try {
+    const { rows: [post] } = await client.query(`
+    DELETE FROM posts
+    WHERE id =$1
+    RETURNING *;
+    `, [postId]);
+
+    return post;
   } catch (error) {
     throw error;
   }
@@ -370,5 +402,6 @@ module.exports = {
   createTags,
   getAllTags,
   createPostTag,
-  addTagsToPost
+  addTagsToPost,
+  deletePost
 }
